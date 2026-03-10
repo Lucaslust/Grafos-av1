@@ -1,0 +1,288 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[portuguese]{babel}
+\usepackage{amsmath}
+\usepackage{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\geometry{margin=2.5cm}
+
+\lstset{
+    language=Python,
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue}\bfseries,
+    stringstyle=\color{orange},
+    commentstyle=\color{gray}\itshape,
+    backgroundcolor=\color{gray!10},
+    frame=single,
+    breaklines=true,
+    showstringspaces=false,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=8pt
+}
+
+\title{
+    \Large\textbf{Universidade de Fortaleza - UNIFOR}\\
+    \large Curso de Ciência da Computação\\
+    \vspace{1.5cm}
+    \huge\textbf{Documentação da Implementação}\\
+    \large Análise de Rede de Colaboração Científica (ca-GrQc)
+}
+\author{João Pedro Brasil, Lucas Lustosa Dias, Davi Dias Vale}
+\date{12 de fevereiro de 2026}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+\newpage
+
+\tableofcontents
+\newpage
+
+\section{Visão Geral}
+
+Este documento descreve a implementação da classe \texttt{Graph} contida em \texttt{graph.py}, responsável por representar e analisar o grafo de colaboração científica ca-GrQc. A implementação é independente de bibliotecas de grafos externas para as operações estruturais, utilizando apenas estruturas de dados fundamentais.
+
+\section{Estrutura de Dados}
+
+\subsection{Representação do Grafo}
+
+O grafo é representado internamente por uma \textbf{lista de adjacência}. Cada vértice possui um \texttt{Bag} (multiconjunto ordenado da biblioteca \texttt{algs4}) que armazena seus vizinhos.
+
+\begin{lstlisting}
+def __init__(self, v):
+    self.V = v      # numero de vertices
+    self.E = 0      # numero de arestas
+    self.map = {}   # ID original -> posicao interna
+    self.adj = []   # lista de adjacencia (lista de Bags)
+\end{lstlisting}
+
+\textbf{Por que lista de adjacência e não matriz?}
+
+Com $|V| = 5.242$ vértices, uma matriz de adjacência teria $5.242^2 \approx 27,5$ milhões de células — a grande maioria zerada, já que a rede é esparsa (densidade de 0,21\%). A lista de adjacência usa memória proporcional apenas às arestas existentes: $O(|V| + |E|)$.
+
+\subsection{Mapeamento de Vértices}
+
+Os IDs dos pesquisadores no arquivo de dados são inteiros arbitrários (ex: 3466, 17038). O dicionário \texttt{map} traduz cada ID original para uma posição interna sequencial na lista \texttt{adj}:
+
+\begin{lstlisting}
+def add_mapping(self, node_value: int) -> None:
+    self.map[node_value] = len(self.adj)
+    self.adj.append(Bag())
+
+def get_position(self, node_value: int) -> int:
+    return self.map[node_value]
+
+def get_value(self, node_position: int) -> int:
+    for key, value in self.map.items():
+        if value == node_position:
+            return key
+\end{lstlisting}
+
+Isso permite preservar os IDs originais dos pesquisadores sem exigir que sejam sequenciais ou contíguos.
+
+\section{Inserção de Arestas}
+
+\subsection{Leitura do Arquivo}
+
+O método \texttt{add\_node\_from\_file} lê o arquivo de dados linha a linha, tratando separadores de tabulação e quebras de linha, e chama \texttt{add\_edge} para cada par de vértices:
+
+\begin{lstlisting}
+def add_node_from_file(self, file_path: str = "data.txt") -> None:
+    with open(file_path, 'r') as file:
+        linhas = file.readlines()
+    for linha in linhas:
+        linha_tratada = linha.replace("\t"," ").replace("\n","").split(" ")
+        no_origem, no_destino = map(int, linha_tratada)
+        self.add_edge(no_origem, no_destino)
+\end{lstlisting}
+
+\subsection{Inserção Bidirecional}
+
+Como o grafo é \textbf{não-direcionado}, cada aresta é inserida nos dois sentidos. Vértices são criados dinamicamente na primeira vez que aparecem:
+
+\begin{lstlisting}
+def add_edge(self, v, w, directed: bool = False):
+    if v not in self.map:
+        self.add_mapping(v)
+    if w not in self.map:
+        self.add_mapping(w)
+    if directed:
+        if w in self.adj[self.get_position(v)]:
+            return
+    v_position = self.get_position(v)
+    w_position = self.get_position(w)
+    self.adj[v_position].add(w)  # v -> w
+    self.adj[w_position].add(v)  # w -> v
+    self.E += 1
+\end{lstlisting}
+
+O parâmetro \texttt{directed} permite uso futuro do grafo de forma direcionada. No caso do ca-GrQc, é sempre \texttt{False}.
+
+\section{Cálculo de Métricas}
+
+\subsection{Grau de um Vértice}
+
+O grau é obtido diretamente pelo tamanho do \texttt{Bag} de adjacência do vértice:
+
+\begin{lstlisting}
+def degree(self, v, from_value: bool = True) -> int:
+    v_position = self.get_position(v) if from_value else v
+    return self.adj[v_position].size()
+\end{lstlisting}
+
+O parâmetro \texttt{from\_value} permite consultar pelo ID original (\texttt{True}) ou pela posição interna (\texttt{False}).
+
+\subsection{Densidade}
+
+Implementa diretamente a fórmula $d = \frac{2|E|}{|V|(|V|-1)}$:
+
+\begin{lstlisting}
+def density(self):
+    return (2 * self.E) / (self.V * (self.V - 1))
+\end{lstlisting}
+
+O denominador $|V|(|V|-1)$ é o número máximo de arestas em um grafo simples não-direcionado com $|V|$ vértices.
+
+\subsection{Grau Mínimo e Máximo}
+
+Calculados iterando sobre todos os vértices do mapeamento:
+
+\begin{lstlisting}
+def min_degree(self) -> int:
+    return min(self.degree(v) for v in self.map.keys())
+
+def max_degree(self) -> int:
+    return max(self.degree(v) for v in self.map.keys())
+\end{lstlisting}
+
+\subsection{Distribuição de Graus}
+
+Retorna um dicionário \texttt{\{grau: frequência\}} usando \texttt{Counter}:
+
+\begin{lstlisting}
+def get_degree_distribution(self):
+    degrees = [self.degree(v) for v in self.map.keys()]
+    return dict(Counter(degrees))
+\end{lstlisting}
+
+\section{Ajuste de Lei de Potência}
+
+\subsection{Fundamentação Matemática}
+
+Uma rede scale-free tem distribuição de graus $P(k) \sim k^{-\gamma}$. Aplicando logaritmo:
+
+\begin{equation}
+    \log P(k) = \log C - \gamma \cdot \log k
+\end{equation}
+
+Isso transforma o problema em uma regressão linear no espaço log-log, onde $\gamma$ é o módulo do coeficiente angular da reta ajustada.
+
+\subsection{Implementação}
+
+O método \texttt{fit\_power\_law} executa as seguintes etapas:
+
+\textbf{1. Normalização para probabilidade:}
+\begin{lstlisting}
+degree_dist = self.get_degree_distribution()
+degrees = np.array(sorted(degree_dist.keys()))
+frequencies = np.array([degree_dist[k] for k in degrees])
+probabilities = frequencies / frequencies.sum()
+\end{lstlisting}
+
+\textbf{2. Filtragem de zeros (evita indefinição no log):}
+\begin{lstlisting}
+mask = (probabilities > 0) & (degrees > 0)
+degrees_filtered = degrees[mask]
+probabilities_filtered = probabilities[mask]
+\end{lstlisting}
+
+\textbf{3. Regressão linear no espaço log-log:}
+\begin{lstlisting}
+log_k = np.log(degrees_filtered)
+log_p = np.log(probabilities_filtered)
+
+coeffs = np.polyfit(log_k, log_p, 1)
+gamma = -coeffs[0]  # coeficiente angular negativo = gamma
+log_C = coeffs[1]
+C = np.exp(log_C)
+\end{lstlisting}
+
+\textbf{4. Cálculo do $R^2$:}
+\begin{lstlisting}
+log_p_pred = log_C - gamma * log_k
+ss_res = np.sum((log_p - log_p_pred)**2)
+ss_tot = np.sum((log_p - log_p.mean())**2)
+r_squared = 1 - (ss_res / ss_tot)
+\end{lstlisting}
+
+O $R^2$ mede qual fração da variância de $\log P(k)$ é explicada pelo modelo linear. Valores acima de 0,8 indicam indício razoável de lei de potência; acima de 0,9, indício forte.
+
+\subsection{Interpretação do Expoente}
+
+O método \texttt{interpret\_gamma} classifica o valor de $\gamma$ conforme os intervalos estabelecidos na literatura:
+
+\begin{lstlisting}
+def interpret_gamma(self, gamma: float) -> str:
+    if gamma < 2:
+        return "gamma < 2: Rede extremamente concentrada em hubs."
+    elif 2 <= gamma < 3:
+        return "2 <= gamma < 3: Rede scale-free tipica (media finita, variancia infinita)."
+    elif 3 <= gamma < 4:
+        return "3 <= gamma < 4: Rede com hubs menos dominantes, mas ainda presentes."
+    else:
+        return "gamma >= 4: Rede sem hubs bem definidos."
+\end{lstlisting}
+
+\textbf{Nota:} a primeira condição (\texttt{gamma < 2}) contém um erro tipográfico na mensagem original — exibe ``$\gamma > 2$'' em vez de ``$\gamma < 2$''. Isso não afeta os resultados, pois o $\gamma$ obtido (2,04) nunca aciona esse ramo.
+
+\section{Visualização}
+
+\subsection{Histograma de Graus}
+
+Gera e salva o histograma da distribuição de graus:
+
+\begin{lstlisting}
+def save_histogram_degree(self, save_path: str = "histogram.png") -> None:
+    degrees = [self.degree(v) for v in self.map.keys()]
+    plt.hist(degrees, bins=range(max(degrees) + 1),
+             color='lightblue', edgecolor='black')
+    plt.title('Histograma de Graus dos Vertices')
+    plt.xlabel('Grau')
+    plt.ylabel('Frequencia')
+    plt.savefig(save_path)
+\end{lstlisting}
+
+\subsection{Gráfico Log-Log com Ajuste}
+
+Gera o gráfico log-log com os dados observados e a curva ajustada, anotando a interpretação de $\gamma$ diretamente no gráfico:
+
+\begin{lstlisting}
+def save_power_law_plot(self, save_path: str = "power_law_fit.png"):
+    fit_results = self.fit_power_law()
+    gamma = fit_results['gamma']
+    C = fit_results['C']
+    r_squared = fit_results['r_squared']
+    degrees = fit_results['degrees']
+    probabilities = fit_results['probabilities']
+
+    plt.loglog(degrees, probabilities, 'bo', alpha=0.6,
+               label='Dados observados')
+
+    k_fit = np.linspace(degrees.min(), degrees.max(), 100)
+    p_fit = C * k_fit**(-gamma)
+    plt.loglog(k_fit, p_fit, 'r-', linewidth=2,
+               label=f'P(k) ~ k^(-gamma), gamma={gamma:.3f}, R2={r_squared:.4f}')
+
+    interpretation = self.interpret_gamma(gamma)
+    plt.text(0.02, 0.02, interpretation, transform=plt.gca().transAxes,
+             fontsize=9, bbox=dict(boxstyle='round', facecolor='wheat'))
+
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+\end{lstlisting}
+
+\end{document}

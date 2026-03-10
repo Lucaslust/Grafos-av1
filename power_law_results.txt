@@ -1,0 +1,10 @@
+RESULTADOS DO AJUSTE DE LEI DE POTÊNCIA
+============================================================
+
+Expoente (γ): 2.0416
+Constante de normalização (C): 5.188125e+00
+Coeficiente de determinação (R²): 0.8794
+Grau mínimo considerado (k_min): 2
+
+Interpretação do expoente γ = 2.0416:
+ 2<=γ<3 A maioria dos nós tem poucas conexões
